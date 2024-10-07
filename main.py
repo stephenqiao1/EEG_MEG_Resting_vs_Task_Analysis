@@ -3,7 +3,7 @@ import mne
 from statsmodels.stats.multitest import multipletests
 from collections import defaultdict
 from data_loading import load_edf
-from preprocessing import clean_channel_names, preprocess_raw, perform_ica, inspect_raw_data, save_bad_channels, load_bad_channels
+from preprocessing import clean_channel_names, preprocess_raw, perform_ica, inspect_raw_data, save_bad_channels, load_bad_channels, create_epochs, create_fixed_length_epochs
 from analysis import compute_psd_epochs, compute_band_power, permutation_cluster_test
 from visualization import plot_topomap_difference, plot_bar_with_significance
 
@@ -34,29 +34,6 @@ all_conditions = [
     'Left Fist',
     'Right Fist'
 ]
-
-# Function to create epochs from raw data
-def create_epochs(raw, tmin, tmax, baseline, event_id_filter=None):
-    """
-    Create epochs from raw data based on annotations.
-
-    Parameters:
-    - raw: Raw data object
-    - tmin: float, start time before event
-    - tmax: float, end time after event
-    - baseline: tuple or None, baseline correction
-    - event_id_filter: list or None, events to include
-
-    Returns:
-    - epochs: Epochs object 
-    """
-    events, event_id = mne.events_from_annotations(raw)
-    epochs = mne.Epochs(
-        raw, events, event_id=event_id, tmin=tmin, tmax=tmax, baseline=baseline, preload=True
-    )
-    if event_id_filter is not None:
-        epochs = epochs[event_id_filter]
-    return epochs
 
 # Initialize data structures for storing results across subjects
 all_band_power_data = defaultdict(lambda: defaultdict(list))
@@ -104,11 +81,11 @@ for subject_number in subjects:
     # Create epochs
     epochs = {}
     # For resting state, use tmin=0, tmax=4, no baseline correction
-    epochs['Rest Open'] = create_epochs(
-        raw_data['Rest Open'], tmin=0, tmax=4, baseline=None, event_id_filter='T0'
+    epochs['Rest Open'] = create_fixed_length_epochs(
+        raw_data['Rest Open'], duration=4.0, overlap=0.0
     )
-    epochs['Rest Closed'] = create_epochs(
-        raw_data['Rest Closed'], tmin=0, tmax=4, baseline=None, event_id_filter='T0'
+    epochs['Rest Closed'] = create_fixed_length_epochs(
+        raw_data['Rest Closed'], duration=4.0, overlap=0.0
     )
     # For task, use tmin=0, tmax=4, no baseline correction
     epochs_task = create_epochs(
@@ -135,6 +112,8 @@ for subject_number in subjects:
         for band in psd_data[condition]:
             psds = psd_data[condition][band]['psds']
             band_power = compute_band_power(psds)  # Shape: (n_epochs, n_channels)
+            print(f"Band power for {condition} in {band} band:")
+            print(band_power)
             # Average over epochs for this subject
             band_power_mean = np.mean(band_power, axis=0)  # Shape: (n_channels,)
             # Append to the list for this band and condition
@@ -148,6 +127,13 @@ for subject_number in subjects:
 for band in all_band_power_data:
     for condition in all_band_power_data[band]:
         all_band_power_data[band][condition] = np.array(all_band_power_data[band][condition])  # Shape: (n_subjects, n_channels)
+        
+        # Debugging 
+        data = all_band_power_data[band][condition]
+        mean_power = data.mean()
+        std_power = data.std()
+        print(f"Mean band power for {condition} in {band} band: {mean_power}")
+        print(f"STD band power for {condition} in {band} band: {std_power}")
 
 # Statistical Analysis and Visualization
 
@@ -174,7 +160,7 @@ for band in frequency_bands:
             
             # Perform cluster-based permutation test with adjusted parameters
             T_obs, clusters, cluster_p_values, H0 = permutation_cluster_test(
-                X, n_permutations=5000, tail=0, threshold=2.0, n_jobs=1, seed=42
+                X, n_permutations=5000, tail=0, threshold=None, n_jobs=1, seed=42
             )
             
             # Identify significant clusters

@@ -20,4 +20,5 @@ def load_edf(subject_number, run_number):
     file_name = f'S{subject_number:03d}R{run_number:02d}.edf'
     file_path = os.path.join(data_path, file_name)
     raw = mne.io.read_raw_edf(file_path, preload=True, stim_channel='auto')
+    # raw.plot(block=True)
     return raw

@@ -67,8 +67,15 @@ def perform_ica(raw, n_components=25, eog_channel='Fp1'):
     ica = ICA(n_components=n_components, method='fastica', random_state=97)
     ica.fit(raw, picks='eeg')
     eog_inds, eog_scores = ica.find_bads_eog(raw, ch_name=eog_channel)
+    
     ica.exclude.extend(eog_inds)
+    
     raw = ica.apply(raw)
+    
+    # # For debugging purposes
+    # print(eog_inds)
+    # ica.plot_components(raw, picks=eog_inds)
+    
     return raw
 
 # Function for visual inspection to identify bad channels
@@ -117,3 +124,73 @@ def load_bad_channels(subject_number):
         return bad_channels
     else:
         return {}
+    
+# Function to create epochs from raw data
+def create_epochs(raw, tmin, tmax, baseline, event_id_filter=None):
+    """
+    Create epochs from raw data based on annotations.
+
+    Parameters:
+    - raw: Raw data object
+    - tmin: float, start time before event
+    - tmax: float, end time after event
+    - baseline: tuple or None, baseline correction
+    - event_id_filter: list or None, events to include
+
+    Returns:
+    - epochs: Epochs object 
+    """
+    events, event_id = mne.events_from_annotations(raw)
+    
+    # Print events and event IDs to verify extraction
+    print("\nExtracted Events:")
+    print(events)
+    print("\nEvent IDs:")
+    print(event_id)
+    
+    # Check if any events were found
+    if len(events) == 0:
+        print("No events found in the raw data.")
+        return None
+    
+    epochs = mne.Epochs(
+        raw, events, event_id=event_id, tmin=tmin, tmax=tmax, baseline=baseline, preload=True
+    )
+    
+    # If specific event IDs are to be selected
+    if event_id_filter is not None:
+        # Ensure that event_id_filter is a list
+        if isinstance(event_id_filter, str):
+            event_id_filter = [event_id_filter]
+        # Check if the specified event IDs exist
+        valid_event_ids = [eid for eid in event_id_filter if eid in event_id]
+        if not valid_event_ids:
+            print(f"No matching event IDs found for filter {event_id_filter}.")
+            return None
+        # Select epochs with valid event IDs
+        epochs = epochs[valid_event_ids]
+
+    # Print the number of epochs created
+    print(f"\nNumber of epochs created: {len(epochs)}")
+    print(f"Epochs info:\n{epochs}")
+    
+    return epochs
+    
+def create_fixed_length_epochs(raw, duration, overlap=0.0):
+    """
+    Create fixed-length epochs from continuous raw data.
+
+    Parameters:
+    - raw: Raw data object
+    - duration: float, length of each epoch in seconds
+    - overlap: float, overlap between epochs in seconds
+
+    Returns:
+    - epochs: Epochs object
+    """
+    epochs = mne.make_fixed_length_epochs(
+        raw, duration=duration, overlap=overlap, preload=True
+    )
+    print(f"\nNumber of fixed-length epochs created: {len(epochs)}")
+    print(f"Epochs info:\n{epochs}")
+    return epochs
