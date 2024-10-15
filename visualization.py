@@ -1,43 +1,49 @@
 import matplotlib.pyplot as plt
 import mne
 import numpy as np
+def plot_topomap_difference(info, mean_power_cond1, mean_power_cond2, title, cmap='RdBu_r'):
+    difference = mean_power_cond1 - mean_power_cond2  # Shape: (n_channels,)
 
-def plot_topomap_difference(info, mean_power_cond1, mean_power_cond2, title, significant_clusters=None):
-    """
-    Plot the topographic map of band power differences between two conditions,
-    optionally highlighting significant clusters.
-    """
-    power_diff = mean_power_cond1 - mean_power_cond2  # Shape: (n_channels,)
-    evoked_diff = mne.EvokedArray(
-        power_diff[:, np.newaxis],
-        info,
-        tmin=0.0
+    # Compute vmin and vmax to center the color scale around zero
+    max_abs = np.max(np.abs(difference))
+    vmin, vmax = -max_abs, max_abs
+
+    # Ensure that the montage is set in info
+    if not np.any(info['chs'][0]['loc']):
+        montage = mne.channels.make_standard_montage('standard_1020')
+        info.set_montage(montage)
+
+    # Ensure that channels match between difference and info
+    picks = mne.pick_types(info, meg=False, eeg=True, exclude='bads')
+    data_channels = [info['ch_names'][i] for i in picks]
+    if len(difference) != len(data_channels):
+        raise ValueError("Mismatch between number of channels in data and info.")
+
+    # Check for NaN or infinite values
+    if np.isnan(difference).any() or np.isinf(difference).any():
+        raise ValueError("Data contains NaN or infinite values.")
+
+    # Create the figure
+    fig, ax = plt.subplots()
+    im, _ = mne.viz.plot_topomap(
+        difference,
+        pos=info,
+        ch_type='eeg',
+        axes=ax,
+        show=False,
+        vlim=(vmin, vmax),  # Use vlim instead of vmin and vmax
+        cmap=cmap,
+        sensors=True
     )
-    fig, ax = plt.subplots(figsize=(8, 6))
-    im, cn = mne.viz.plot_topomap(
-        evoked_diff.data[:, 0], info, axes=ax, show=False, cmap='RdBu_r',
-        contours=0
-    )
-    ax.set_title(title, fontsize=12)
-    
-    if significant_clusters is not None:
-        for cluster_idx in significant_clusters:
-            cluster = stat_results[band][(cond1, cond2)]['clusters'][cluster_idx]
-            mne.viz.plot_topomap(
-                np.isin(np.arange(len(info['ch_names'])), cluster).astype(int),
-                info, axes=ax, show=False, cmap='Greens',
-                alpha=0.5, contours=0
-            )
-    
-    plt.colorbar(im, ax=ax, orientation='vertical', fraction=0.046, pad=0.04)
+    fig.colorbar(im, ax=ax)
+    ax.set_title(title)
     plt.show()
 
-
-# Function to plot bar plots with statistical significance
+    
 def plot_bar_with_significance(cond1, mean1, sem1, cond2, mean2, sem2, significant, title):
     """
     Plot bar plots of average band power for two conditions with significance asterisks.
-    
+
     Parameters:
     - cond1: str, name of condition 1
     - mean1: float, mean band power for condition 1

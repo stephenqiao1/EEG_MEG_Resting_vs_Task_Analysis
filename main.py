@@ -3,9 +3,12 @@ import mne
 from statsmodels.stats.multitest import multipletests
 from collections import defaultdict
 from data_loading import load_edf
-from preprocessing import clean_channel_names, preprocess_raw, perform_ica, inspect_raw_data, save_bad_channels, load_bad_channels, create_epochs, create_fixed_length_epochs
+from preprocessing import (clean_channel_names, preprocess_raw, perform_ica,
+                           inspect_raw_data, save_bad_channels, load_bad_channels,
+                           create_epochs, create_fixed_length_epochs)
 from analysis import compute_psd_epochs, compute_band_power, permutation_cluster_test
 from visualization import plot_topomap_difference, plot_bar_with_significance
+import matplotlib.pyplot as plt
 
 # List of subject numbers to process
 subjects = [1, 2, 3]  # Update this list with your subject numbers
@@ -78,16 +81,28 @@ for subject_number in subjects:
         # Perform ICA
         raw_data[condition] = perform_ica(raw_data[condition])
 
+        # Update the info object to include only good channels
+        raw_data[condition].pick_types(eeg=True, exclude='bads')
+
+    # Store info structure for later use
+    if info is None:
+        info = raw_data['Rest Open'].info.copy()
+
+        # Ensure that the montage is set
+        if not info['chs'][0]['loc'].any():
+            montage = mne.channels.make_standard_montage('standard_1020')
+            info.set_montage(montage)
+
     # Create epochs
     epochs = {}
-    # For resting state, use tmin=0, tmax=4, no baseline correction
+    # For resting state, use fixed-length epochs
     epochs['Rest Open'] = create_fixed_length_epochs(
         raw_data['Rest Open'], duration=4.0, overlap=0.0
     )
     epochs['Rest Closed'] = create_fixed_length_epochs(
         raw_data['Rest Closed'], duration=4.0, overlap=0.0
     )
-    # For task, use tmin=0, tmax=4, no baseline correction
+    # For task, use event-based epochs
     epochs_task = create_epochs(
         raw_data['Task'], tmin=0, tmax=4, baseline=None
     )
@@ -119,16 +134,12 @@ for subject_number in subjects:
             # Append to the list for this band and condition
             all_band_power_data[band][condition].append(band_power_mean)
 
-    # Store info structure for later use
-    if info is None:
-        info = epochs['Rest Open'].info
-
 # Convert lists to NumPy arrays
 for band in all_band_power_data:
     for condition in all_band_power_data[band]:
         all_band_power_data[band][condition] = np.array(all_band_power_data[band][condition])  # Shape: (n_subjects, n_channels)
-        
-        # Debugging 
+
+        # Debugging
         data = all_band_power_data[band][condition]
         mean_power = data.mean()
         std_power = data.std()
@@ -154,18 +165,18 @@ for band in frequency_bands:
             # Extract data: Shape (n_subjects, n_channels)
             data_cond1 = all_band_power_data[band][cond1]
             data_cond2 = all_band_power_data[band][cond2]
-            
+
             # Stack data into a list for permutation_cluster_test
             X = [data_cond1, data_cond2]
-            
+
             # Perform cluster-based permutation test with adjusted parameters
             T_obs, clusters, cluster_p_values, H0 = permutation_cluster_test(
                 X, n_permutations=5000, tail=0, threshold=None, n_jobs=1, seed=42
             )
-            
+
             # Identify significant clusters
             significant_cluster_indices = np.where(cluster_p_values < 0.05)[0]
-            
+
             # Store statistical results
             stat_results[band][(cond1, cond2)] = {
                 'T_obs': T_obs,
@@ -187,27 +198,6 @@ for band in frequency_bands:
             mean_data[band][condition] = mean
             sem_data[band][condition] = sem
 
-# After statistical tests
-# Collect all p-values
-all_p_values = []
-for band in stat_results:
-    for cond_pair in stat_results[band]:
-        p_vals = stat_results[band][cond_pair]['cluster_p_values']
-        all_p_values.extend(p_vals)
-
-# Apply FDR correction
-reject, pvals_corrected, _, _ = multipletests(all_p_values, alpha=0.05, method='fdr_bh')
-print('Applied FDR correction to p-values.')
-
-# Assign corrected p-values back to stat_results
-idx = 0
-for band in stat_results:
-    for cond_pair in stat_results[band]:
-        n_clusters = len(stat_results[band][cond_pair]['cluster_p_values'])
-        stat_results[band][cond_pair]['cluster_p_values_corrected'] = pvals_corrected[idx:idx+n_clusters]
-        stat_results[band][cond_pair]['significant_clusters_corrected'] = np.where(stat_results[band][cond_pair]['cluster_p_values_corrected'] < 0.05)[0]
-        idx += n_clusters
-
 # Plot topographic maps for each frequency band and condition pair
 for band in frequency_bands:
     for (cond1, cond2) in condition_pairs:
@@ -215,41 +205,58 @@ for band in frequency_bands:
             title = f'Band Power Difference ({band.capitalize()}): {cond1} - {cond2}'
             mean_cond1 = all_band_power_data[band][cond1].mean(axis=0)  # Shape: (n_channels,)
             mean_cond2 = all_band_power_data[band][cond2].mean(axis=0)  # Shape: (n_channels,)
-            
-            # Check if there are significant clusters based on corrected p-values
-            significant_clusters = stat_results[band][(cond1, cond2)]['significant_clusters_corrected']
-            if len(significant_clusters) == 0:
-                print(f'No significant clusters found for {band} band between {cond1} and {cond2}. Skipping topomap.')
-                continue
-            
+
+            # Check for NaNs or Infs in mean_cond1 and mean_cond2
+            if np.isnan(mean_cond1).any() or np.isinf(mean_cond1).any():
+                print(f"mean_cond1 contains invalid values for {band} band between {cond1} and {cond2}.")
+                continue  # Skip plotting for this pair
+            if np.isnan(mean_cond2).any() or np.isinf(mean_cond2).any():
+                print(f"mean_cond2 contains invalid values for {band} band between {cond1} and {cond2}.")
+                continue  # Skip plotting for this pair
+
+            # Plot the topomap difference with adjusted color scales
             plot_topomap_difference(
                 info,
                 mean_power_cond1=mean_cond1,
                 mean_power_cond2=mean_cond2,
-                title=title
+                title=title,
+                cmap='RdBu_r'  # Red-blue colormap reversed for divergent data
             )
 
-# Plot bar plots with significance
+# Plot individual subject data
 for band in frequency_bands:
-    for (cond1, cond2) in condition_pairs:
-        if band in stat_results and (cond1, cond2) in stat_results[band]:
-            title = f'Average {band.capitalize()} Band Power: {cond1} vs {cond2}'
-            mean_cond1 = mean_data[band][cond1]
-            sem_cond1 = sem_data[band][cond1]
-            mean_cond2 = mean_data[band][cond2]
-            sem_cond2 = sem_data[band][cond2]
-            
-            # Retrieve corrected p-values
-            p_vals_corrected = stat_results[band][(cond1, cond2)]['cluster_p_values_corrected']
-            significant = np.any(p_vals_corrected < 0.05)
-            
-            plot_bar_with_significance(
-                cond1,
-                mean_cond1,
-                sem_cond1,
-                cond2,
-                mean_cond2,
-                sem_cond2,
-                significant,
-                title
-            )
+    for condition in all_conditions:
+        if condition in all_band_power_data[band]:
+            # Extract data: Shape (n_subjects, n_channels)
+            data = all_band_power_data[band][condition]
+
+            # Compute global vmin and vmax for this band and condition
+            vmin = data.min()
+            vmax = data.max()
+
+            for subject_idx in range(len(subjects)):
+                band_power = data[subject_idx]  # Shape: (n_channels,)
+                subject_number = subjects[subject_idx]
+                title = f'Subject {subject_number} - {condition} - {band.capitalize()} Band Power'
+
+                # Check for NaNs or Infs in band_power
+                if np.isnan(band_power).any() or np.isinf(band_power).any():
+                    print(f"Band power contains invalid values for Subject {subject_number}, {condition}, {band} band.")
+                    continue  # Skip plotting for this subject
+
+                # Plot topomap for individual subject
+                fig, ax = plt.subplots()
+                im, cn = mne.viz.plot_topomap(
+                    band_power,
+                    info,
+                    axes=ax,
+                    show=False,
+                    cmap='viridis',  # Choose an appropriate colormap
+                    sensors=True
+                )
+                fig.colorbar(im, ax=ax)
+                ax.set_title(title)
+                plt.tight_layout()
+                # Save and close the figure inside the loop
+                fig.savefig(f'subject_{subject_number}_{condition}_{band}.png')
+                plt.close(fig)
