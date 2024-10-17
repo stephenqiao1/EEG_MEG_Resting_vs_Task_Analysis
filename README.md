@@ -39,4 +39,56 @@ pip install numpy mne matplotlib statsmodels
 ```
 ## Usage
 ### Configuration
-1. 
+1. **Update Subject List**
+   By default, the pipeline is set to process subjects 1 through 3.
+   ```
+   subjects = [1, 2, 3]  # Update this list with your subject numbers
+   ```
+2. **Set Run Information**
+   Ensure that the runs dictionary correctly maps condition names to their respective run numbers.
+   ```
+   runs = {
+    'Rest Open': 1,
+    'Rest Closed': 2,
+    'Task': 3
+   }
+   ```
+3. **Define Frequency Bands**
+   The pipeline analyzes EEG data across standard frequency bands. Adjust if necessary.
+  ```
+frequency_bands = {
+    'delta': (1, 4),
+    'theta': (4, 8),
+    'alpha': (8, 13),
+    'beta': (13, 30),
+    'gamma': (30, 45)
+}
+  ```
+4. **Specify Conditions**
+   List all experimental conditions to be analyzed.
+   ```
+   all_conditions = [
+    'Rest Open',
+    'Rest Closed',
+    'Task Rest',
+    'Left Fist',
+    'Right Fist'
+   ]
+   ```
+### Running the Pipeline
+1. **Execute the Main Script**
+   ```
+   python main.py
+   ```
+2. **Accessing Results**
+   * **Statistical Results**: Stored in the stat_results dictionary
+   * **Visualizations**: Generated plots are saved in designated directories (plots/topomaps and plots/individual_subjects).
+  
+## Data
+### Data Requirements
+* **Format**: EDF
+* **Structure**: Each subject should have EEG recordings for the following conditions:
+  - Resting with eyes open (Rest Open)
+  - Resting with eyes closed (Rest Closed)
+  - Task-related activity (Task)
+* **Directory Structure**: Organize data in a consistent directory hierarchy to facilitate automated loading.
