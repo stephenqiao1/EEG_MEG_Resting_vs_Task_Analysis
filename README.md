@@ -92,3 +92,58 @@ frequency_bands = {
   - Resting with eyes closed (Rest Closed)
   - Task-related activity (Task)
 * **Directory Structure**: Organize data in a consistent directory hierarchy to facilitate automated loading.
+### Loading Data
+The load_edf function from the data_loading module handles the ingestion of EDF files. Ensure that EDF files are named or organized in a manner that aligns with the function's expectations.
+
+## Pipeline Workflow
+### 1. Data Loading
+* **Function**: load_edf(subject_number, run_number)
+* **Purpose**: Loads raw EEG data for each subject and condition from EDF files.
+* **Error Handling**: Skips subjects with missing data files, logging the issue.
+### 2. Preprocessing
+* **Functions**:
+  - clean_channel_names(raw_data)
+  - preprocess_raw(raw_data, bad_channels)
+  - perform_ica(raw_data)
+* **Steps**:
+  - **Channel Name Cleaning**: Standardizes EEG channel names for consistency
+  - **Bad Channel Detection**: Loads previously identified bad channels or performs visual inspection to mark bad channels.
+  - **Artifact Removal**: Uses ICA to remove artifacts like eye blinks and muscle movements.
+  - **Channel Selection**: Retains only good EEG channels for further analysis.
+### 3. Epoch Creation
+* **Functions**:
+  - create_fixed_length_epochs(raw_data, duration, overlap)
+  - create_epochs(raw_data, tmin, tmax, baseline)
+* **Steps**:
+  - **Resting State**: Creates fixed-length epochs for resting conditions
+  - **Task Conditions**: Creates event-based epochs aligned to specific task-related events (e.g., Left Fist, Right Fist)
+### 4. Power Spectral Density (PSD) Computation
+* **Function**: compute_psd_epochs(epochs, fmin, fmax)
+* **Purpose**: Calculates PSD for each epoch within defined frequency bands.
+* **Output**: PSD values and corresponding frequencies for each condition and band.
+### 5. Band Power Calculation
+* **Function**: compute_band_power(psds)
+* **Purpose**: Computes average band power across epochs for statistical analysis.
+* **Aggregation**: Stores mean band power for each subject, condition, and frequency band.
+### 6. Statistical Analysis
+* **Function**: permutation_cluster_test(X, n_permutations, tail, threshold, n_jobs, seed)
+* **Purpose**: Performs cluster-based permutation tests to identify significant differences between conditions.
+* **Parameters**:
+  - X: List containing data arrays for the two conditions being compared
+  - n_permutations: Number of permutations for the test (e.g., 5000).
+  - n_jobs: Number of CPU cores to use
+* **Output**:
+  - T_obs: Observed test statistics
+  - clusters: Identified clusters of significant differences.
+  - cluster_p_values: P-values for each cluster
+  - significant_clusters: Indices of clusters with p-values below the significance threshold
+### 7. Visualization
+* **Topographic Maps**:
+  - **Function**: plot_topomap_difference(info, mean_power_cond1, mean_power_cond2, title, cmap)
+  - **Purpose**: Visualizes spatial differences in band power between two conditions across the scalp.
+* **Individual Subject Plots**:
+  - **Function**: Utilizes MNE's plot_topomap to create and save individual subject topographic maps.
+* **Organizing Plots**:
+  - Plots are saved in structured directories (plots/topomaps and plots/individual_subjects) for easy access and organization.
+
+
